@@ -1,0 +1,182 @@
+---
+title: "Lab 3"
+author: "Carissa Feliciano"
+format: html
+embed-resources: true
+---
+
+# 1. Read in the data
+```{r}
+download.file(
+  "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz",
+  destfile = file.path("~", "Downloads", "met_all.gz"),
+  method   = "libcurl",
+  timeout  = 60
+)
+
+met <- data.table::fread(file.path("~", "Downloads", "met_all.gz"))
+met <- as.data.frame(met)
+```
+# 2. Check the dimensions, headers, and footers.
+
+```{r}
+dim(met)
+```
+There are 2377343 rows and 30 columns.
+
+```{r}
+head(met)
+```
+
+```{r}
+tail(met)
+```
+# 3. Take a look at the variables.
+
+```{r}
+str(met)
+```
+
+The key variables related to our question of interest are elev, wind.sp, temp, year, day, and hour. 
+
+# 4. Take a closer look at the key variables. 
+```{r}
+table(met$year)
+```
+
+```{r}
+table(met$day)
+```
+
+```{r}
+table(met$hour)
+```
+
+```{r}
+summary(met$temp)
+```
+```{r}
+summary(met$elev)
+```
+
+```{r}
+summary(met$wind.sp)
+```
+```{r}
+met[met$elev==9999.0, "elev"] <- NA
+summary(met$elev)
+```
+The highest weather station is at 4113 meters about mean sea level.
+
+```{r}
+met <- met[met$temp > -40, ]
+head(met[order(met$temp), ])
+```
+
+```{r}
+summary(met$wind.sp)
+```
+
+For the wind.sp variable, there are 91832 missing values. 
+
+# 5. Check the data against an external source.
+```{r}
+met_ss <- met[met$temp == -17.2, c('hour','lat','lon','elev','wind.sp')]
+
+summary(met_ss)
+```
+The suspicious temperature value (-17.2C) is located at (38.77,-104.3), which is outside of Colorado Springs, Colorado. The closest town is Truckton, Colorado, which is at the same elevation. The average climate in August is a high of 82F and low of 57F (13.88C). The value of -17.2C does not seem reasonable in this context. 
+
+![38.77, -104.3](-17.2map.png)
+
+Based on Google Maps, the elevation is around 6000 feet, which is consistent with the elevation listed in the database, 1838 meters.
+
+# 6. Calculate summary statistics. 
+```{r}
+elev <- met[which(met$elev == max(met$elev, na.rm = TRUE)), ]
+summary(elev)
+```
+```{r}
+cor(elev$temp, elev$wind.sp, use="complete")
+```
+```{r}
+cor(elev$temp, elev$hour, use="complete")
+```
+
+```{r}
+cor(elev$wind.sp, elev$day, use="complete")
+```
+
+```{r}
+cor(elev$wind.sp, elev$hour, use="complete")
+```
+
+```{r}
+cor(elev$temp, elev$day, use="complete")
+```
+
+# 7. Exploratory graphs
+```{r}
+hist(met$elev)
+```
+```{r}
+hist(met$temp)
+```
+```{r}
+hist(met$wind.sp)
+```
+```{r}
+library(leaflet)
+leaflet(elev) |>
+  addProviderTiles('OpenStreetMap') |> 
+  addCircles(lat=~lat,lng=~lon, opacity=1, fillOpacity=1, radius=100)
+```
+
+```{r}
+library(lubridate)
+elev$date <- with(elev, ymd_h(paste(year, month, day, hour, sep= ' ')))
+summary(elev$date)
+```
+```{r}
+elev <- elev[order(elev$date), ]
+head(elev)
+```
+```{r}
+plot(elev$date, elev$temp, type="l", 
+     xlab = "Date", ylab = "Temperature (deg C)", main = "Temperature and Date")
+```
+
+It appears that temperature peaks once per day. The range of temperatures remained fairly consistent during the month of August. The temperature typically ranged from 4C to 12C. 
+
+```{r}
+plot(elev$date, elev$wind.sp, type="l", 
+     xlab = "Date", ylab = "Wind Speed", main = "Wind Speed and Date")
+```
+
+It appears that wind speed fluctuates significantly throughout the course of each day, without a single daily peak. The peak wind speed gradually increased from the beginning of August to August 19, and then dipped before peaking again around August 26th. 
+
+# 8. Ask questions
+
+## At the station with the highest elevation, is wind speed related to temperature? 
+```{r}
+plot(elev$wind.sp, elev$temp, 
+    main = "Wind Speed vs Temperature", 
+    xlab = "Wind Speed",
+    ylab = "Temperature",
+    pch = 19, 
+    col = "blue")
+```
+
+Based on this plot, it appears that wind speed is not related to temperature. The points are randomly distributed with no clear pattern. 
+
+## Is temperature related to relative humidity?
+```{r}
+plot(met$temp, met$rh, 
+    main = "Temperature vs Relative Humidity", 
+    xlab = "Temperature",
+    ylab = "Relative Humidity",
+    pch = 19, 
+    col = "blue")
+```
+
+As elevation increases, relative humidity decreases. This is expected, because cold air cannot hold as much water vapor as warm air. 
