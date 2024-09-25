@@ -1,0 +1,116 @@
+---
+title: "Assignment 01"
+author: "Carissa Feliciano"
+format: html
+embed-resources: true
+---
+
+# 1. Prepare the data
+## Read in the data
+```{r}
+library(data.table)
+
+Ca2002 <- data.table::fread(file.path("~/Downloads/PM2.5_Ca_2002.csv"))
+Ca2022 <- data.table::fread(file.path("~/Downloads/PM2.5_Ca_2022.csv"))
+```
+
+## Checking the PM2.5 California 2002 Dataset 
+Check the dimensions, headers, footers, variable names, and variable types. 
+```{r}
+dim(Ca2002)
+```
+
+```{r}
+head(Ca2002)
+```
+
+```{r}
+tail(Ca2002)
+```
+
+```{r}
+str(Ca2002)
+```
+
+```{r}
+summary(Ca2002$`Daily Mean PM2.5 Concentration`)
+```
+
+In the 2002 Dataset of PM2.5 concentrations at all sites in California, there are 15,976 rows and 22 columns. There are 15,976 observations and 22 variables. For daily mean PM2.5 concentration, the range is 0-104.30, and there are no missing values. There are no observations that are 999 or 9999, which are common indicators for missing values. 
+
+## Checking the PM2.5 California 2022 Dataset 
+```{r}
+dim(Ca2022)
+```
+
+```{r}
+head(Ca2022)
+```
+```{r}
+tail(Ca2022)
+```
+```{r}
+str(Ca2022)
+```
+
+```{r}
+summary(Ca2022$`Daily Mean PM2.5 Concentration`)
+```
+
+In the 2022 Dataset of PM2.5 concentrations at all sites in California, there are 59,756 rows and 22 columns. There are 59,756 observations and 22 variables. For daily mean PM2.5 concentrations, the range is -6.7 to 302.5. The minimum concentration should be 0, since it is not possible to have a negative amount of particles in the air. According to the EPA, vaild negative numbers should be included in reporting to databases (https://www.epa.gov/sites/default/files/2016-10/documents/pm2.5_continuous_monitoring.pdf). The AQS generally allows negative data up to -10 ug/m^3. Therefore, I will leave the negative values in this database. The maximum is within the range of possible values. There are no observations that are 999 or 9999, which are common indicators for missing values. 
+
+# 2. Combine the two years of data into one data frame, create date variable, and change the variable names. 
+
+Combine the two years of data into one data frame. 
+```{r}
+combined_ca <- rbind(Ca2002, Ca2022)
+```
+
+Use the Date variable to create a new column for year. 
+```{r}
+combined_ca$Date <- as.Date(combined_ca$Date, format = "%m/%d/%Y")
+combined_ca$Year <- format(combined_ca$Date, "%Y")
+```
+
+Change the names of the key variables. 
+```{r}
+library(dplyr)
+combined_ca <- combined_ca |>
+    rename(PM2.5 = `Daily Mean PM2.5 Concentration`,
+    lat = `Site Latitude`,
+    lon = `Site Longitude`)
+```
+
+# 3. Create a basic map in leaflet() that shows the locations of the sites (make sure to use different colors for each year). Summarize the spatial distribution of the monitoring sites.
+
+```{r}
+pm_stations <- (unique(combined_ca[,c("lat","lon", "Year")]))
+table(pm_stations$Year)
+```
+
+```{r}
+library(leaflet)
+library(leaflet.extras)
+
+year.pal <- colorFactor(c("blue", "red"), domain = pm_stations$Year)
+
+leaflet(pm_stations) |>
+  addTiles() |>
+  addCircles(
+    lat = ~lat, lng = ~lon,
+    color = ~year.pal(Year),
+    opacity = 0.5, fillOpacity = 0.3, radius = 400) |>
+  addLegend(
+    "bottomleft",
+    pal = year.pal,
+    values = ~Year,
+    title = "Year",
+    opacity = 1
+    )
+```
+
+There are larger clusters of monitoring sites near Los Angeles, San Francisco, and Sacramento. It appears that there are more monitoring sites on the Western side of California compared to the Eastern side. The majority of the monitoring sites in the 2002 database were also listed in the 2022 database. The additional sites that were only in the 2022 database are scattered throughout California. 
+
+**Need to add labels to the markers
+
+# 4. Check for any missing or implausible values of PM in the combined dataset. Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.

@@ -1,0 +1,209 @@
+---
+title: "Lab 4"
+author: "Carissa Feliciano"
+format: html
+embed-resources: true
+---
+# 1. Read in the data
+
+```{r}
+library(data.table)
+library(lubridate)
+library(ggplot2)
+if (!file.exists("met_all.gz"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz",
+    destfile = file.path("~", "Downloads", "met_all.gz"),
+    method   = "libcurl",
+    timeout  = 60
+    )
+met <- data.table::fread(file.path("~", "Downloads", "met_all.gz"))
+```
+
+# 2. Prepare the data 
+Remove temperatures less than -17C. Make sure there are no missing data in the key variables coded as 9999. 
+```{r}
+met <- met[met$temp > -17][elev == 9999.0, elev := NA]
+```
+
+Generate a date variable. 
+```{r}
+met[, date := as.Date(paste(year, month, day, sep = "-"))]
+```
+
+Using the data.table::week function, keep the observations of the first week of the month.
+**I had to use a different function because the week function was only outputting the first 5 days of each month.
+```{r}
+met <- met[as.integer(format(date, "%d")) <= 7]
+```
+
+Compute the mean by station of the variables temp, rh, wind.sp, vis.dist, dew.point, lat, lon, and elev.
+```{r}
+met_avg <- met[,.(
+  temp     = mean(temp,na.rm=TRUE),
+  rh       = mean(rh,na.rm=TRUE),
+  wind.sp  = mean(wind.sp,na.rm=TRUE),
+  vis.dist = mean(vis.dist,na.rm=TRUE),
+  dew.point = mean(dew.point,na.rm=TRUE),
+  lat      = mean(lat),
+  lon      = mean(lon), 
+  elev     = mean(elev,na.rm=TRUE)
+), by=c("USAFID")]
+```
+
+Create a region variable for NW, SW, NE, SE based on lon = -98.00 and lat = 39.71 degrees.
+```{r}
+ref_lon <- -98.00
+ref_lat <- 39.71
+
+met_avg[, region := fifelse(lon < ref_lon & lat > ref_lat, "NW",
+              fifelse(lon < ref_lon & lat <= ref_lat, "SW",
+              fifelse(lon >= ref_lon & lat > ref_lat, "NE",
+              "SE")))]
+```
+
+Create a categorical variable for elevation.
+```{r}
+met_avg[, elev_cat := fifelse(elev > 252, "high", "low")]
+```
+
+# 3. Use geom_violin to examine the wind speed and dew point by region
+```{r}
+met_avg[!is.na(region) & !is.na(wind.sp) & !is.na(dew.point)] |> 
+  ggplot()+
+  geom_violin(mapping=aes(x=dew.point, y=wind.sp, fill=region))+
+  facet_wrap(~ region, nrow = 1)+
+  labs(title = "Wind Speed and Dew Point by Region")+
+  labs(x = "Dew Point", y = "Wind Speed")
+```
+The dew point has a wider range, from 0-20, in the West regions. The dew point has a more narrow range in the East regions. Of the four regions, the dew point is generally highest in the SE region. 
+
+The wind speeds are generally higher in the West regions compared to the East regions. However, the range of wind speeds is greatest for the NE region, with a maximum observed wind speed of approximately 10. 
+
+# 4. Use geom_jitter with stat_smooth to examine the association between dew point and wind speed by region
+
+```{r}
+met_avg[!is.na(region) & !is.na(wind.sp) & !is.na(dew.point)] |> 
+  ggplot(mapping = aes(x = dew.point, y = wind.sp))+
+  geom_jitter(aes(color=region))+
+  stat_smooth(method = "lm", formula = y ~ x, se = FALSE)+
+  facet_wrap(~ region, nrow = 1)+
+  labs(title = "Wind Speed vs Dew Point by Region")+
+  labs(x = "Dew Point", y = "Wind Speed")
+```
+
+In the NE, NW, and SE regions, wind speed increases as dew point increases. The positive slope is greatest for the SE region. There appears to be one outlier of abnormally high wind speed for the NE region. In the SW region, it appears that wind speed slightly decreases as dew point increases. 
+
+# 5. Use geom_bar to create barplots of the weather stations by elevation category colored by region
+
+```{r}
+met_avg[!is.na(region) & !is.na(USAFID) & !is.na(elev_cat)] |> 
+  ggplot()+
+  geom_bar(mapping = aes(x = elev_cat, fill = region), color = "black", position = "dodge")+
+  scale_fill_brewer(palette = "BuPu")+
+  labs(title = "Number of Weather Stations per Elevation Category by Region")+
+  labs(x = "Elevation Category", y = "Number of Weather Stations")
+```
+
+Out of the four regions, the SE region contains the highest number of weather stations. The SE region contains more weather stations in low elevation areas than in high elevation areas. The NE region has a similar number of weather stations located in high elevation areas as in low elevation areas. In the NW region, the weather stations are predominantly located at high elevations. There are very few weather stations at low elevations in the NW region. The SW region has approximately double the amount of weather stations at high elevations than at low elevations. 
+
+# 6. Use stat_summary to examine mean dew point and wind speed by region with standard deviation error bars
+
+```{r}
+library(Hmisc)
+met_avg[!is.na(region) & !is.na(dew.point) & !is.na(wind.sp)] |> 
+  ggplot()+
+  stat_summary(mapping = aes(x = region, y = dew.point),
+    fun.min = min,
+    fun.max = max,
+    fun = mean)+
+  stat_summary(mapping = aes(x = region, y = dew.point), fun.data = mean_sdl, geom = "errorbar", color = "red")+
+  labs(title = "Dew Point by Region")+
+  labs(x = "Region", y = "Dew Point")
+```
+
+The mean dew point is approximately 17 for the NE region, 12 for the NW region, 21 for the SE region, and 14 for the SW region. The mean dew point is the highest for the SE region. The standard deviations are larger for the West regions compared to the East regions. 
+
+```{r}
+met_avg[!is.na(region) & !is.na(dew.point) & !is.na(wind.sp)] |> 
+  ggplot()+
+  stat_summary(mapping = aes(x = region, y = wind.sp),
+    fun.min = min,
+    fun.max = max,
+    fun = mean)+
+  stat_summary(mapping = aes(x = region, y = wind.sp), fun.data = mean_sdl, geom = "errorbar", color = "red")+
+  labs(title = "Wind Speed by Region")+
+  labs(x = "Region", y = "Wind Speed")
+```
+
+The mean wind speeds for the four regions are similar. The mean wind speed is approximately 2 for the NE region, 3 for the NW region, 1.9 for the SE region, and 3.2 for the SW region. The standard deviations are similar for the four regions and are about 1.5-2. 
+
+# 7. Make a map showing the spatial trend in relative humidity in the US
+```{r}
+library(leaflet)
+library(dplyr)
+met_avg <- met_avg[!is.na(rh) & !is.na(lon) & !is.na(lat)]
+
+rh.pal <- colorNumeric(c("gold","seagreen2","blue"), domain = met_avg$rh)
+
+top_rh <- met_avg %>%
+  filter(rank(-rh) <= 10)
+
+leaflet(met_avg) |>
+  addTiles() |>
+  addCircles(
+    lat = ~lat, lng = ~lon,
+    label = ~paste0(round(rh,2), '%RH'),
+    color = ~rh.pal(rh),
+    opacity = 1, fillOpacity = 1, radius = 500
+    ) |>
+  addMarkers(
+    data = top_rh,
+    lat = ~lat, lng = ~lon,
+    label = ~paste0("Top RH: ", round(rh,2), "%"),
+    icon = leaflet::icons(
+            iconUrl = "https://leafletjs.com/examples/custom-icons/leaf-red.png",
+            iconWidth = 25, iconHeight = 41,
+            iconAnchorX = 12, iconAnchorY = 41)
+  ) |>
+  addLegend(
+    position = "bottomleft",
+    colors = "red",
+    labels = "Top 10 Sites with Highest Relative Humidity",
+    title = "Markers",
+    opacity = 1
+  ) |>
+  addLegend(
+    position = "bottomleft",
+    pal = rh.pal,
+    values = met_avg$rh,
+    title = "Relative Humidity (%)",
+    opacity = 1
+  )
+   
+```
+
+With the exception of the coastal areas on the West, relative humidity generally increases as you move from the West coast to the East coast. In general, the Eastern half of the US has a higher relative humidity than the Western half of the US. 
+
+# 8. Use a ggplot extension
+
+```{r}
+library(ggplot2)
+library(gganimate)
+
+met_avg[!is.na(region) & !is.na(wind.sp) & !is.na(dew.point)] |> 
+  ggplot()+
+  geom_boxplot(mapping=aes(x = dew.point, y = wind.sp, fill = region))+
+  labs(title = "Wind Speed and Dew Point by Region")+
+  labs(x = "Dew Point", y = "Wind Speed")+
+  transition_states(
+    region,
+    transition_length = 4,
+    state_length = 2
+  )+
+  enter_fade()+
+  exit_shrink()+
+  ease_aes('sine-in-out')
+```
+
+I used the ggplot extension, gganimate, to display boxplots of wind speed by dew point for each of the four regions.
