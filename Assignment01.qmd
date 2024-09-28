@@ -9,17 +9,18 @@ embed-resources: true
 ## Read in the data
 ```{r}
 library(data.table)
-
+library(dplyr)
 Ca2002 <- data.table::fread(file.path("~/Downloads/PM2.5_Ca_2002.csv"))
 Ca2022 <- data.table::fread(file.path("~/Downloads/PM2.5_Ca_2022.csv"))
 ```
 
 ## Checking the PM2.5 California 2002 Dataset 
-Check the dimensions, headers, footers, variable names, and variable types. 
+### Check the size of the data. 
 ```{r}
 dim(Ca2002)
 ```
 
+### Look at the top and bottom of the data. 
 ```{r}
 head(Ca2002)
 ```
@@ -28,6 +29,7 @@ head(Ca2002)
 tail(Ca2002)
 ```
 
+### Examine the variable names and variable types. 
 ```{r}
 str(Ca2002)
 ```
@@ -36,19 +38,33 @@ str(Ca2002)
 summary(Ca2002$`Daily Mean PM2.5 Concentration`)
 ```
 
-In the 2002 Dataset of PM2.5 concentrations at all sites in California, there are 15,976 rows and 22 columns. There are 15,976 observations and 22 variables. For daily mean PM2.5 concentration, the range is 0-104.30, and there are no missing values. There are no observations that are 999 or 9999, which are common indicators for missing values. 
+```{r}
+sum(is.na(Ca2002$`Daily Mean PM2.5 Concentration`))
+sum(Ca2002$`Daily Mean PM2.5 Concentration` == "")
+```
+
+```{r}
+hist(Ca2002$`Daily Mean PM2.5 Concentration`)
+```
+
+### Summary of the PM 2.5 California 2000 Dataset 
+In the 2002 dataset of daily average PM2.5 concentrations at all sites in California, there are 15,976 rows and 22 columns. There are 15,976 observations and 22 variables. There are no missing values for the daily mean PM2.5 concentration. There are no observations that are labeled as NA, "", 999, or 9999. For the daily mean PM2.5 concentration, the range is 0-104.30 ug/m^3, which is plausible. There appears to be no major issues with the data. 
 
 ## Checking the PM2.5 California 2022 Dataset 
+
+### Check the size of the data. 
 ```{r}
 dim(Ca2022)
 ```
 
+### Look at the top and bottom of the data. 
 ```{r}
 head(Ca2022)
 ```
 ```{r}
 tail(Ca2022)
 ```
+### Look at the variables. 
 ```{r}
 str(Ca2022)
 ```
@@ -57,7 +73,19 @@ str(Ca2022)
 summary(Ca2022$`Daily Mean PM2.5 Concentration`)
 ```
 
-In the 2022 Dataset of PM2.5 concentrations at all sites in California, there are 59,756 rows and 22 columns. There are 59,756 observations and 22 variables. For daily mean PM2.5 concentrations, the range is -6.7 to 302.5. The minimum concentration should be 0, since it is not possible to have a negative amount of particles in the air. According to the EPA, vaild negative numbers should be included in reporting to databases (https://www.epa.gov/sites/default/files/2016-10/documents/pm2.5_continuous_monitoring.pdf). The AQS generally allows negative data up to -10 ug/m^3. Therefore, I will leave the negative values in this database. The maximum is within the range of possible values. There are no observations that are 999 or 9999, which are common indicators for missing values. 
+```{r}
+sum(is.na(Ca2022$`Daily Mean PM2.5 Concentration`))
+sum(Ca2022$`Daily Mean PM2.5 Concentration` == "")
+```
+
+```{r}
+hist(Ca2022$`Daily Mean PM2.5 Concentration`)
+```
+
+### Summary of the PM2.5 California 2022 Dataset
+In the 2022 dataset of daily average PM2.5 concentrations at all sites in California, there are 59,756 rows and 22 columns. There are 59,756 observations and 22 variables. There are no missing values for the daily mean PM2.5 concentration. There are no observations that are labeled as NA, "", 999, or 9999.
+
+For daily mean PM2.5 concentrations, the range is -6.7 to 302.5 ug/m^3. Technically, the minimum concentration should be 0, since it is not possible to have a negative amount of particles in the air. However, according to the EPA, vaild negative numbers should be included in reporting to databases (https://www.epa.gov/sites/default/files/2016-10/documents/pm2.5_continuous_monitoring.pdf). The AQS generally allows negative data up to -10 ug/m^3. Therefore, I will leave the negative values in this database. The maximum is within the range of plausible values.
 
 # 2. Combine the two years of data into one data frame, create date variable, and change the variable names. 
 
@@ -72,7 +100,7 @@ combined_ca$Date <- as.Date(combined_ca$Date, format = "%m/%d/%Y")
 combined_ca$Year <- format(combined_ca$Date, "%Y")
 ```
 
-Change the names of the key variables. 
+Change the names of the key variables so they are easier to refer to. 
 ```{r}
 library(dplyr)
 combined_ca <- combined_ca |>
@@ -84,7 +112,7 @@ combined_ca <- combined_ca |>
 # 3. Create a basic map in leaflet() that shows the locations of the sites (make sure to use different colors for each year). Summarize the spatial distribution of the monitoring sites.
 
 ```{r}
-pm_stations <- (unique(combined_ca[,c("lat","lon", "Year")]))
+pm_stations <- (unique(combined_ca[,c("lat","lon", "Year", "Local Site Name")]))
 table(pm_stations$Year)
 ```
 
@@ -92,13 +120,14 @@ table(pm_stations$Year)
 library(leaflet)
 library(leaflet.extras)
 
-year.pal <- colorFactor(c("blue", "red"), domain = pm_stations$Year)
+year.pal <- colorFactor(c("red", "blue"), domain = pm_stations$Year)
 
 leaflet(pm_stations) |>
   addTiles() |>
   addCircles(
     lat = ~lat, lng = ~lon,
     color = ~year.pal(Year),
+    label = ~paste("", `Year`, "", `Local Site Name`),
     opacity = 0.5, fillOpacity = 0.3, radius = 400) |>
   addLegend(
     "bottomleft",
@@ -111,6 +140,215 @@ leaflet(pm_stations) |>
 
 There are larger clusters of monitoring sites near Los Angeles, San Francisco, and Sacramento. It appears that there are more monitoring sites on the Western side of California compared to the Eastern side. The majority of the monitoring sites in the 2002 database were also listed in the 2022 database. The additional sites that were only in the 2022 database are scattered throughout California. 
 
-**Need to add labels to the markers
+# 4. Check for any missing or implausible values of PM2.5 in the combined dataset. Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.
 
-# 4. Check for any missing or implausible values of PM in the combined dataset. Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.
+## Checking for any missing or implausible values in the combined dataset. 
+```{r}
+summary(combined_ca$PM2.5)
+```
+
+```{r}
+sum(combined_ca$PM2.5 == "")
+sum(is.na(combined_ca$PM2.5))
+```
+
+```{r}
+combined_ca <- combined_ca[order(combined_ca$PM2.5), ]
+head(combined_ca)
+```
+
+```{r}
+tail(combined_ca)
+```
+
+```{r}
+hist(combined_ca$PM2.5)
+```
+There are no missing values of PM2.5 in the combined dataset. 
+
+The range of daily average PM2.5 concentrations is -6.70 to 302.50. As mentioned above, technically, the minimum concentration should be 0, since it is not possible to have a negative amount of particles in the air. However, according to the EPA, vaild negative numbers should be included in reporting to databases. The AQS generally allows negative data up to -10 ug/m^3. 
+
+The max PM2.5 value is 302.5, which was recorded on 07/31/2022 in Yreka, Ca. This value seems plausible, as there was a large fire, the McKinney Fire, in Yreka on 07/31/2022.
+
+## Explore the proportions of missing values and implausible values, and provide a summary of any temporal patterns you see in these observations. 
+In this case, I am assuming that negative values are implausible.
+```{r}
+mean(is.na(combined_ca$PM2.5))
+```
+The proportion of PM2.5 concentration values that are missing is 0%.
+
+```{r}
+mean(combined_ca$PM2.5 <0, na.rm = TRUE)
+```
+The proportion of PM2.5 concentration values less than 0 is 0.28%. This is a very low percentage, and I am not certain these values are implausible. Therefore, I will leave them in the dataset. 
+
+```{r}
+library(ggplot2)
+combined_ca[combined_ca$Year == 2002, ] |>
+  ggplot()+
+  geom_point(mapping = aes(x = Date, y = PM2.5))+
+  labs(x = "Date", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations in California, 2002")
+```
+```{r}
+combined_ca[combined_ca$Year == 2022, ] |>
+  ggplot()+
+  geom_point(mapping = aes(x = Date, y = PM2.5))+
+  labs(x = "Date", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations in California, 2022")
+```
+These scatterplots above demonstrate that there are daily average PM2.5 concentration values recorded for every day of the year in both 2002 and 2022. 
+
+```{r}
+combined_ca |> filter(PM2.5 < 0) |>
+  ggplot()+
+  geom_point(mapping = aes(x = Date, y = PM2.5))+
+  labs(x = "Date", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Negative Daily Average PM2.5 Concentrations in California, 2002 and 2022")
+```
+This scatterplot allows us to better visualize when negative daily average PM2.5 concentrations were recorded during 2002 and 2022. There were no negative PM2.5 concentrations recorded for 2002. In 2022, there were negative PM2.5 values recorded throughout the year, but the largest negative PM2.5 concentrations were recorded between September-October 2022. 
+
+# 5. Explore the main question of interest at three different spatial levels. Create exploratory plots (e.g. boxplots, histograms, line plots) and summary statistics that best suit each level of data. Write up explanations of what you observe in these data.
+
+## State: California
+
+```{r}
+combined_ca_avg <- combined_ca |>
+  group_by(Date) |>
+  summarize(
+    PM2.5_avg = mean(PM2.5, na.rm = TRUE),
+    Year = unique(Year)
+  )
+nrow(combined_ca_avg)
+```
+The daily average PM2.5 concentrations for all sites in California were averaged to generate a daily average PM2.5 concentration for California for each day of the year. This dataset was then used to generate the following graphs. 
+
+```{r}
+ggplot(combined_ca_avg)+
+  geom_boxplot(mapping = aes(x = Year, y = PM2.5_avg, fill = Year))+
+  labs(x = "Year", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for California, 2002 vs 2022")
+```
+Overall, the daily average PM2.5 concentrations of California were lower in 2022 compared to 2002. The median daily average PM2.5 concentration of California was approximately 16 ug/m^3 in 2002 and 8 ug/m^3 in 2022. The maximum mean daily PM2.5 concentration, excluding outliers, was approximately 36 ug/m^3 in 2002 and 15 ug/m^3 in 2022. The highest outlier was approximately 50 ug/m^3 in 2002 and 20 ug/m^3 in 2022. 
+
+```{r}
+ggplot(combined_ca_avg)+
+  geom_histogram(mapping = aes(x = PM2.5_avg, fill = Year), color = "dimgrey", binwidth = 2, position = "identity", alpha = 0.6)+
+  labs(x = "Daily Average PM2.5 Concentration (ug/m^3)", y = "Number of Days", title = "Daily Average PM2.5 Concentrations for California, 2002 vs 2022")
+```
+Based on this histogram, it appears that the daily average PM2.5 concentrations for California have decreased from 2002 to 2022. The distribution of daily average PM2.5 concentrations for California in 2002 was right-skewed with a peak at 14 ug/m^3. The distribution of daily average PM2.5 concentrations for California in 2022 was slightly right-skewed with a peak at 8 ug/m^3. The range of daily average PM2.5 concentrations was approximately 4-51 ug/m^3 in 2002 and 3-19 ug/m^3 in 2022. 
+
+```{r}
+ggplot(data = combined_ca_avg |>
+         mutate(Date = as.Date(format(Date, "2000-%m-%d"))))+
+  geom_line(mapping = aes(x = Date, y = PM2.5_avg, color = Year))+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b")+
+  labs(x = "Month", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for California, 2002 vs 2022")
+```
+The daily average PM2.5 concentrations for California were generally lower in 2022 compared to 2002 for all months of the year. In 2002, the daily average PM2.5 concentrations ranged from approximately 5 ug/m^3 to 50 ug/m^3. In 2022, the daily average PM2.5 concentrations ranged from approximately 3 ug/m^3 to 19 ug/m^3. In 2002, the daily average PM2.5 concentrations for California were highest in November-December. In 2022, the daily average PM2.5 concentrations for California were highest in September. 
+
+Summary statistics of PM2.5 concentration, by year, across all sites in California
+```{r}
+combined_ca |>
+  summarize(
+    Count = n(),
+    Mean = mean(PM2.5, na.rm = TRUE),
+    Median = median(PM2.5, na.rm = TRUE),
+    Min = min(PM2.5, na.rm = TRUE),
+    Max = max(PM2.5, na.rm = TRUE),
+    SD = sd(PM2.5, na.rm = TRUE),
+    .by = c(Year)
+  )
+```
+
+These statistics were generated from a dataset containing the daily average PM2.5 concentrations for all sites in California from 2002 and 2022. It appears that the daily concentrations of PM2.5 have decreased in California from 2002 to 2022. The median daily average PM2.5 concentration across all sites in California was 12 ug/m^3 in 2002 and 6.8 ug/m^3 in 2022. The maximum daily average PM2.5 concentration was 104.3 ug/m^3 in 2002 and 302.5 ug/m^3 in 2022. While the maximum daily average PM2.5 concentration was greater in 2022, the majority of daily average PM2.5 concentration values are lower in 2022 compared to 2002. 
+
+## County: Los Angeles County
+```{r}
+combined_LAC <- combined_ca[combined_ca$County=="Los Angeles", ]
+
+combined_LAC_avg <- combined_LAC |>
+  group_by(Date) |>
+  summarize(
+    PM2.5_avg = mean(PM2.5, na.rm = TRUE),
+    Year = unique(Year)
+  )
+```
+The daily average PM2.5 concentrations for all sites in Los Angeles County (LAC) were averaged to generate a daily average PM2.5 concentration for LAC for each day of the year. This dataset was then used to generate the following graphs. 
+
+```{r}
+ggplot(combined_LAC_avg)+
+  geom_boxplot(mapping = aes(x = Year, y = PM2.5_avg, fill = Year))+
+  labs(x = "Year", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for Los Angeles County, 2002 vs 2022")
+```
+Generally, the daily average PM2.5 concentrations for Los Angeles County (LAC) were lower in 2022 compared to 2002. The median daily average PM2.5 concentration for LAC was approximately 18 ug/m^3 in 2002 and 11 ug/m^3 in 2022. The maximum daily average PM2.5 concentration, excluding outliers, for LAC was approximately 43 ug/m^3 in 2002 and 20 ug/m^3 in 2022. The interquartile range was narrower in 2022 compared to 2002. 
+
+```{r}
+ggplot(combined_LAC_avg)+
+  geom_histogram(mapping = aes(x = PM2.5_avg, fill = Year), color = "dimgrey", binwidth = 2, position = "identity", alpha = 0.6)+
+  labs(x = "Daily Average PM2.5 Concentration (ug/m&3)", y = "Number of Days", title = "Daily Average PM2.5 Concentrations for Los Angeles County, 2002 vs 2022")
+```
+The daily average PM2.5 concentrations for Los Angeles County (LAC) were generally lower in 2022 compared to 2002. The distribution of daily average PM2.5 concentrations for LAC in 2002 was right-skewed with a peak at approximately 16 ug/m^3 and a second peak at 23 ug/m^3. The distribution of daily average PM2.5 concentrations for LAC in 2022 was slightly right-skewed distribution with a peak at 11 ug/m^3.  
+
+```{r}
+ggplot(data = combined_LAC_avg |>
+         mutate(Date = as.Date(format(Date, "2000-%m-%d"))))+
+  geom_line(mapping = aes(x = Date, y = PM2.5_avg, color = Year))+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b")+
+  labs(x = "Date", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for Los Angeles County, 2002 vs 2022")
+```
+In general, the daily average PM2.5 concentrations of Los Angeles County were lower in 2022 compared to 2002 for all months of the year. The difference in PM2.5 concentrations was greatest for the months of October and December when comparing 2002 to 2022. The range of daily average PM2.5 concentrations was approximately 5-58 ug/m^3 in 2002 and 3-26 ug/m^3 in 2022. 
+
+```{r}
+combined_LAC |>
+  summarize(
+    Count = n(),
+    Mean = mean(PM2.5, na.rm = TRUE),
+    Median = median(PM2.5, na.rm = TRUE),
+    Min = min(PM2.5, na.rm = TRUE),
+    Max = max(PM2.5, na.rm = TRUE),
+    SD = sd(PM2.5, na.rm = TRUE),
+    .by = c(Year)
+  )
+```
+
+These statistics were generated from a dataset containing the daily average PM2.5 concentrations for all sites in Los Angeles County from 2002 and 2022. The daily average PM2.5 concentrations in Los Angeles County were lower in 2022 compared to 2002. The median daily average PM2.5 concentration across all sites in LAC was 17.4 ug/m^3 in 2002 and 10.3 ug/m^3 in 2022. The maximum daily average PM2.5 concentration was 72.4 ug/m^3 in 2002 and 56 ug/m^3. 
+
+## Site in Los Angeles: Pasadena 
+```{r}
+combined_pas <- combined_ca[combined_ca$`Local Site Name`=="Pasadena", ]
+```
+
+```{r}
+ggplot(combined_pas)+
+  geom_boxplot(mapping = aes(x = Year, y = PM2.5, fill = Year))+
+  labs(x = "Year", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for Pasadena, CA, 2002 vs 2022")
+```
+Overall, the daily average PM2.5 concentrations for the Pasadena site are lower in 2022 compared to 2002. The median daily average PM2.5 concentration was approximately 18 ug/m^3 in 2002 and 8 ug/m^3 in 2022. The maximum daily average PM2.5 concentration, excluding outliers, was approximately 45 ug/m^3 in 2002 and 19 ug/m^3 in 2022. 
+
+```{r}
+ggplot(combined_pas)+
+  geom_histogram(mapping = aes(x = PM2.5, fill = Year), color = "dimgrey", binwidth = 2, position = "identity", alpha = 0.6)+
+  labs(x = "Daily Average PM2.5 Concentration (ug/m^3)", y = "Number of Days", title = "Daily Average PM2.5 Concentrations for Pasadena, CA, 2002 vs 2022")
+```
+Overall, the daily average PM2.5 concentrations at the Pasadena site were lower in 2022 compared to 2002. The distribution of the daily average PM2.5 concentrations for 2002 is right-skewed with a long right tail and peak at approximately 12 ug/m^3. The distribution of the daily average PM2.5 concentrations for 2022 is slightly right-skewed with a peak at 6 ug/m^3. Based on this graph, the range was approximately 3-59 ug/m^3 in 2002 and 3-23 ug/m^3 in 2022. 
+
+```{r}
+ggplot(data = combined_pas |>
+         mutate(Date = as.Date(format(Date, "2000-%m-%d"))))+
+  geom_line(mapping = aes(x = Date, y = PM2.5, color = Year))+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b")+
+  labs(x = "Date", y = "Daily Average PM2.5 Concentration (ug/m^3)", title = "Daily Average PM2.5 Concentrations for Pasadena, CA, 2002 vs 2022")
+```
+Generally, the daily average PM2.5 concentrations were lower in 2022 compared to 2002 for all months of the year. Based on this graph, the range of daily average PM2.5 concentration values was approximately 4-58 ug/m^3 in 2002 and 4-22 ug/m^3 in 2022. The differences in PM2.5 concentrations were smallest during the months of May and June. 
+
+```{r}
+combined_pas |>
+  summarize(
+    Count = n(),
+    Mean = mean(PM2.5, na.rm = TRUE),
+    Median = median(PM2.5, na.rm = TRUE),
+    Min = min(PM2.5, na.rm = TRUE),
+    Max = max(PM2.5, na.rm = TRUE),
+    SD = sd(PM2.5, na.rm = TRUE),
+    .by = c(Year)
+  )
+```
+
+The daily average PM2.5 concentrations at the Pasadena, CA site were lower in 2022 compared to 2002. The median daily average PM2.5 concentration was 17.8 ug/m^3 in 2002 and 7.9 ug/m^3 in 2022. The maximum daily average PM2.5 concentration was 57.8 ug/m^3 in 2002 and 22.1 ug/m^3 in 2022. 
