@@ -1,0 +1,428 @@
+---
+title: "Assignment 02"
+author: "Carissa Feliciano"
+format: html
+embed-resources: true
+---
+
+# Data Wrangling
+
+```{r}
+library(data.table)
+library(dplyr)
+```
+
+```{r}
+# Download the individual CHS dataset
+if (!file.exists("chs_indiv.csv"))
+  download.file(
+    url = "raw.githubusercontent.com/USCbiostats/data-science-data/master/01_chs/chs_individual.csv",
+    destfile = "chs_indiv.csv",
+    method   = "libcurl",
+    timeout  = 60
+    )
+
+chs_indiv <- data.table::fread("chs_indiv.csv")
+chs_indiv <- as.data.frame(chs_indiv)
+```
+
+```{r}
+# Download the regional CHS dataset 
+if (!file.exists("chs_regional.csv"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/01_chs/chs_regional.csv",
+    destfile = "chs_regional.csv",
+    method   = "libcurl",
+    timeout  = 60
+    )
+
+chs_region <- data.table::fread("chs_regional.csv")
+chs_region <- as.data.frame(chs_region)
+```
+```{r}
+# Merge datasets
+chs <- merge(
+  x = chs_indiv,
+  y = chs_region,
+  by = "townname",
+  all.x = TRUE,
+  all.y = FALSE
+)
+```
+
+## 1. Check for duplicates, impute missing values 
+
+```{r}
+# Count the number of rows
+nrow(chs_indiv)
+nrow(chs_region)
+nrow(chs)
+```
+The number of rows in the individual CHS dataset (chs_indiv) matches the number of rows in the merged dataset. 
+
+```{r}
+# Determine which columns have missing values
+sapply(chs, function(x) sum(is.na(x)))
+
+# Impute missing numerical data using the average amongst individuals with the same values for the “male” and “hispanic” variables.
+chs <- chs |>
+  group_by(male, hispanic) |>
+  mutate(
+    agepft = coalesce(agepft, mean(agepft, na.rm = TRUE)),
+    height = coalesce(height, mean(height, na.rm = TRUE)),
+    weight = coalesce(weight, mean(weight, na.rm = TRUE)),
+    bmi = coalesce(bmi, mean(bmi, na.rm = TRUE)),
+    fev = coalesce(fev, mean(fev, na.rm = TRUE)),
+    fvc = coalesce(fvc, mean(fvc, na.rm = TRUE)),
+    mmef = coalesce(mmef, mean(mmef, na.rm = TRUE)),
+  ) |>
+  ungroup()
+```
+
+```{r}
+library(DescTools)
+
+# Impute missing categorical variable using the mode.
+chs <- chs |>
+  group_by(male, hispanic) |>
+  mutate(
+    asthma = coalesce(asthma, Mode(asthma, na.rm = TRUE)),
+    father_asthma = coalesce(father_asthma, Mode(father_asthma, na.rm = TRUE)),
+    mother_asthma = coalesce(mother_asthma, Mode(mother_asthma, na.rm = TRUE)),
+    wheeze = coalesce(wheeze, Mode(wheeze, na.rm = TRUE)),
+    hayfever = coalesce(hayfever, Mode(hayfever, na.rm = TRUE)),
+    allergy = coalesce(allergy, Mode(allergy, na.rm = TRUE)),
+    educ_parent = coalesce(educ_parent, Mode(educ_parent, na.rm = TRUE)),
+    smoke = coalesce(smoke, Mode(smoke, na.rm = TRUE)),
+    gasstove = coalesce(gasstove, Mode(gasstove, na.rm = TRUE)),
+  ) |>
+  ungroup()
+```
+
+## 2. Create a new categorical variable named "obesity_level" and create a summary table.
+
+```{r}
+# Create a new categorical variable named "obesity_level" using the BMI measurement (underweight BMI<14; normal BMI 14-22; overweight BMI 22-24; obese BMI>24).
+chs <- chs |>
+  mutate(
+    obesity_level = case_when(
+      bmi < 14 ~ "underweight",
+      bmi >= 14 & bmi <= 22 ~ "normal",
+      bmi > 22 & bmi <= 24 ~ "overweight",
+      bmi > 24 ~ "obese" 
+    )
+  )
+```
+
+```{r}
+library(knitr)
+
+# Create a summary table
+obesity_sum <- chs |>
+  group_by(obesity_level) |>
+  summarize(
+    min_bmi = min(bmi, na.rm = TRUE),
+    max_bmi = max(bmi, na.rm = TRUE),
+    total_obs = n() 
+    ) |>
+  arrange(factor(obesity_level, levels = c("underweight", "normal", "overweight", "obese")))
+
+kable(obesity_sum, digits = 3)
+```
+
+## 3. Create a new categorical variable named "smoke_gas_exposure" that summarizes "Second Hand Smoke" and "Gas Stove" with four categories. 
+```{r}
+chs <- chs |>
+  mutate(
+    smoke_gas_exposure = case_when(
+      smoke == 0 & gasstove == 0 ~ "none",
+      smoke == 1 & gasstove == 0 ~ "smoke",
+      smoke == 0 & gasstove == 1 ~ "gas",
+      smoke == 1 & gasstove == 1 ~ "both"
+    )
+  )
+```
+
+## 4. Create four summary tables showing the average and sd of "Forced expiratory volume in 1 second (ml)" by town, sex, obesity level, and "smoke_gas_exposure"
+
+```{r}
+# FEV1 by town
+fev_town <- chs |>
+  group_by(townname) |>
+  summarize(
+    avg_fev = mean(fev, na.rm = TRUE),
+    sd_fev = sd(fev, na.rm = TRUE)
+  )
+
+kable(fev_town)
+```
+
+
+```{r}
+#FEV1 by sex
+fev_sex <- chs |>
+  rename(sex = male) |>
+  mutate(sex = if_else(sex ==1, "Male", "Female")) |>
+  group_by(sex) |>
+  summarize(
+    avg_fev = mean(fev, na.rm = TRUE),
+    sd_fev = sd(fev, na.rm = TRUE)
+  )
+
+kable(fev_sex)
+```
+
+
+```{r}
+#FEV1 by obesity level
+fev_obesity <- chs |>
+  group_by(obesity_level) |>
+  summarize(
+    avg_fev = mean(fev, na.rm = TRUE),
+    sd_fev = sd(fev, na.rm = TRUE)
+  ) |>
+  arrange(factor(obesity_level, levels = c("underweight", "normal", "overweight", "obese")))
+
+kable(fev_obesity)
+```
+
+
+```{r}
+#FEV1 by smoke_gas_exposure 
+fev_smoke <- chs |>
+  group_by(smoke_gas_exposure) |>
+  summarize(
+    avg_fev = mean(fev, na.rm = TRUE),
+    sd_fev = sd(fev, na.rm = TRUE)
+  ) |>
+  arrange(factor(smoke_gas_exposure, levels = c("none", "smoke", "gas", "both")))
+
+kable(fev_smoke)
+```
+
+# Looking at the data (EDA)
+## Check the size of the data
+```{r}
+dim(chs)
+```
+There are 1200 rows and 51 columns. 
+
+## Look at the top and bottom
+```{r}
+head(chs)
+tail(chs)
+```
+Looking at the top and bottom of the data, there do not appear to be any irregularities. 
+
+## Check the variables, check your expectations, and validate against an external source
+```{r}
+# Check the variables 
+str(chs)
+```
+There are 51 variables and 1200 observations.
+
+Check the main variables of interest (BMI, FEV, smoke_gas_exposure, obesity_level, PM2.5 mass).
+```{r}
+# BMI 
+summary(chs$bmi)
+sum(chs$bmi == "")
+hist(chs$bmi)
+```
+The minimum BMI, 11.3, seems very low. However, this value is possible, and it is not very different from the second lowest value of 12.1. This value is likely real. The maximum BMI of 41.27 is plausible. All NA values were imputed, and there are no observations labeled as "". 
+
+```{r}
+# FEV
+summary(chs$fev)
+sum(chs$fev == "")
+hist(chs$fev)
+```
+The range of FEV1 values (984.8-3323.7 mLs). The children in the USC Children's Health Study were 0-17 years of age. Based on a study by Stanojevic et al., this range is plausible. All NA's were imputed, and there are no observations labeled "". 
+
+Stanojevic S et al. Reference ranges for spirometry across all ages: a new approach. American journal of respiratory and critical care medicine. 2008 Feb 1;177(3):253-60.
+
+```{r}
+# Smoke_gas_exposure
+table(chs$smoke_gas_exposure)
+```
+The observations sum to 1200. 
+
+```{r}
+#Obesity_level
+table(chs$obesity_level)
+```
+The observations sum to 1200. 
+
+```{r}
+# PM2.5 mass
+summary(chs$pm25_mass)
+sum(chs$pm25_mass == "")
+hist(chs$pm25_mass)
+```
+The range of PM2.5 mass concentrations is 5.96 to 29.97, which is plausible. There are no observations labeled as NA or "". 
+
+# Visualization
+## 1. Facet plot showing scatterplots with regression lines of BMI vs FEV by "townname".
+```{r}
+library(ggplot2)
+ggplot(data = chs, mapping = aes(x = bmi, y = fev)) +
+  geom_point(col = "blue", alpha = 0.3) +
+  geom_smooth(method = lm, se = FALSE, col = "black") +
+  labs(x = "BMI", y = "FEV1 (mL)", title = "FEV1 vs BMI by Town") +
+  facet_wrap(~ townname, nrow = 3)
+```
+Generally, as BMI increases, FEV1 increases. The slope is the steepest for Upland, Lake Elsinore, and San Dimas.
+
+## 2. Stacked histograms of FEV by BMI category and FEV by smoke/gas exposure using a custom color scheme. 
+```{r}
+library(RColorBrewer)
+
+# Arranging levels for obesity_level
+chs <- chs |>
+  mutate(obesity_level = factor(obesity_level, levels = c("underweight", "normal", "overweight", "obese")))
+
+# Stacked histogram of FEV by BMI category
+ggplot(data = chs, mapping = aes(x = fev, fill = obesity_level)) +
+  geom_histogram(position = "stack", bins = 34, color = "black", alpha = 0.7) + 
+  scale_fill_brewer(
+    palette = "YlGnBu",
+    name = "BMI Classification",
+    labels = c(
+      "underweight" = "Underweight (<14)",
+      "normal" = "Normal (14-22)",
+      "overweight" = "Overweight (22-24)",
+      "obese" = "Obese (>24)"
+      )
+    ) +
+  labs(x = "FEV1 (mL)", y = "Count", title = "Distribution of FEV1 by BMI classification")
+```
+Including all individuals, the distribution of FEV1 is approximately normal with a peak at approximately 2000 mL. Individuals who are overweight or obese tend to have FEV1 values around 1750 mLs or greater, with a peak around 2250 mL. The lower FEV1 values are primarily from individuals who are underweight or normal weight. 
+
+```{r}
+# Arranging levels for smoke_gas_exposure
+chs <- chs |>
+  mutate(smoke_gas_exposure = factor(smoke_gas_exposure, levels = c("none", "smoke", "gas", "both")))
+
+# Stacked histogram of FEV by smoke/gas exposure using a custom color scheme. 
+ggplot(data = chs, mapping = aes(x = fev, fill = smoke_gas_exposure)) +
+  geom_histogram(position = "stack", bins = 34, color = "black", alpha = 0.7) +
+  scale_fill_brewer(
+    palette = "OrRd",
+    name = "Smoke/Gas Exposure",
+    labels = c(
+      "none" = "None",
+      "smoke" = "Secondhand Smoke",
+      "gas" = "Gas Stove",
+      "both" = "Both"
+      )
+    ) +
+  labs(x = "FEV1 (mL)", y = "Count", title = "Distribution of FEV1 by Smoke/Gas Exposure")
+```
+Including all individuals, the distribution of FEV1 is approximately normal with a peak at approximately 2000 mL. The majority of individuals were exposed to gas stoves only. It appears the distribution of FEV1 values is consistent among the different exposure groups, with the majority of FEV1 values clustering around 2000 mL.
+
+## Barchart of BMI by smoke/gas exposure 
+```{r}
+ggplot(data = chs) +
+  geom_bar(mapping = aes(x = smoke_gas_exposure, fill = obesity_level), position = "dodge") + 
+  labs(x = "Smoke/Gas Exposure", y = "Count", title = "BMI Classification by Smoke/Gas Exposure") +
+  scale_fill_brewer(
+    palette = "YlGnBu",
+    name = "BMI Classification",
+    labels = c(
+      "underweight" = "Underweight (<14)",
+      "normal" = "Normal (14-22)",
+      "overweight" = "Overweight (22-24)",
+      "obese" = "Obese (>24)"
+      )
+    ) +
+  scale_x_discrete(
+    labels = c(
+      "none" = "None",
+      "smoke" = "Secondhand Smoke",
+      "gas" = "Gas Stove",
+      "both" = "Both"
+      ), 
+  )
+```
+There is a similar distribution of BMI across all exposure groups. The highest proportion of individuals are classified as normal weight, followed by obese, overweight, and then underweight. The proportion of individuals classified as normal weight is significantly higher than other BMI categories. There are no individuals classified as underweight in the secondhand smoke exposure group, likely due to the overall small number of individuals with only secondhand smoke exposure. Among all individuals, the majority have only gas stove exposure. 
+
+## 4. Statistical summary graphs of FEV by BMI and FEV by smoke/gas exposure category.
+```{r}
+#Statistical summary graph of FEV by BMI
+ggplot(data = chs) +
+  geom_boxplot(mapping = aes(x = obesity_level, y = fev, fill = obesity_level)) +
+  scale_fill_brewer(
+    palette = "YlGnBu",
+    name = "Weight Classification (BMI)",
+    labels = c(
+      "underweight" = "Underweight (<14)",
+      "normal" = "Normal (14-22)",
+      "overweight" = "Overweight (22-24)",
+      "obese" = "Obese (>24)"
+      )
+    ) +
+  scale_x_discrete(
+    labels = c(
+      "underweight" = "Underweight (<14)",
+      "normal" = "Normal (14-22)",
+      "overweight" = "Overweight (22-24)",
+      "obese" = "Obese (>24)"
+      )
+    ) +
+  labs(x = "Weight Classification (BMI)", y = "FEV1 (mL)", title = "FEV1 by BMI Classification")
+```
+As the weight classification increases from underweight to overweight, the median FEV1 increases. The median FEV1s are very similar for the overweight and obese group. For the underweight group, the distribution of FEV1 is positively skewed. For the overweight group, the distribution of FEV1 is slightly negatively skewed. The distributions of FEV1 are approximately normal for the normal weight and obese groups. The median FEV1 is approximately 1625 mL for the underweight group, 2000 mL for the normal weight group, 2225 mL for the overweight group, and 2250 mL for the obese group. The normal weight group has the greatest amount of outliers. 
+
+```{r}
+#Statistical summary graph of FEV by Smoke/Gas Exposure
+ggplot(data = chs) +
+  geom_boxplot(mapping = aes(x = smoke_gas_exposure, y = fev, fill = smoke_gas_exposure)) +
+  scale_fill_brewer(
+    palette = "OrRd",
+    name = "Smoke/Gas Exposure",
+    labels = c(
+      "none" = "None",
+      "smoke" = "Secondhand Smoke",
+      "gas" = "Gas Stove",
+      "both" = "Both"
+      )
+    ) +
+  scale_x_discrete(
+    labels = c(
+      "none" = "None",
+      "smoke" = "Secondhand Smoke",
+      "gas" = "Gas Stove",
+      "both" = "Both"
+      )
+  ) +
+  labs(x = "Smoke/Gas Exposure", y = "FEV1 (mL)", title = "FEV1 by Smoke/Gas Exposure")
+```
+Overall, it appears that smoke/gas exposure does not have a significant effect on FEV1. The median FEV1s are approximately the same for the no exposure, gas stove exposure, and both exposures groups (2000 mL). The median FEV1 for the secondhand smoke group (2050 mL) is very slightly higher. The range is the smallest for the secondhand smoke group (1375-2500 mL). The range for the other three groups is approximately 1250-2750 mL. The distributions are approximately normal of the no exposure and gas stove exposure groups. The distribution for the secondhand group is negatively skewed. The distribution for the both exposures group is slightly positively skewed.
+
+## 5. Leaflet map showing the concentrations of PM2.5 mass in each of the CHS communities. 
+```{r}
+library(leaflet)
+
+pm25.pal <- colorNumeric(c('royalblue', 'gold', 'red3'), domain = chs$pm25_mass)
+
+leaflet(chs) |>
+  addTiles() |>
+  addCircles(
+    lat = ~lat,
+    lng = ~lon,
+    label = ~paste0(round(pm25_mass,2), ' ug/m^3'), color = ~ pm25.pal(pm25_mass),
+    opacity = 1, fillOpacity = 1, radius = 500
+  ) |>
+  addLegend('bottomleft', pal = pm25.pal, values = chs$pm25_mass,
+            title = 'PM2.5 Mass (ug/m^3)', opacity = 1)
+```
+
+The PM2.5 mass concentrations were highest in the CHS communities in Riverside County and East LA County. A CHS community near Eastvale had the highest PM2.5 mass concentration of 29.97 ug/m^3. The PM2.5 mass concentrations were the lowest in the coastal areas north of Santa Barbara. All of the CHS communities were located in Southern California. 
+
+## 6. Choose a visualization to examine whether PM2.5 mass is associated with FEV. 
+```{r}
+ggplot(data = chs, mapping = aes(x = pm25_mass, y = fev)) +
+  geom_point(alpha = 0.3, col = "blue") +
+  geom_smooth(method = lm, se = FALSE, col = "black") +
+  labs(x = "PM2.5 mass concentration (ug/m^3)", y = "FEV1 (mL)", title = "FEV1 by PM2.5 mass concentration")
+```
+Overall, it appears that PM2.5 mass concentration is not associated with FEV1. The slope of the regression line is very slightly down-trending but close to 0. FEV1 is randomly distributed about 2000 mL for each PM2.5 mass concentration. 
