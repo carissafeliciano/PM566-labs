@@ -1,0 +1,145 @@
+---
+title: "Lab 9"
+author: "Carissa Feliciano"
+format: html
+embed-resources: TRUE
+---
+
+# Problem 1: Vectorization
+
+## Function 1 (n x k dataset)
+```{r}
+
+fun1 <- function(n = 100, k = 4, lambda = 4) {
+  x <- NULL
+  
+  for (i in 1:n){
+    x <- rbind(x, rpois(k, lambda))    
+  }
+  
+  return(x)
+}
+
+# Write a faster version of the function 
+fun1alt <- function(n = 100, k = 4, lambda = 4) {
+  matrix(rpois(n * k, lambda), nrow = n, ncol = k)
+}
+```
+
+```{r}
+# Show that fun1alt generates a matrix with the same dimensions as fun1 
+fun_matrix <- fun1()
+dim(fun_matrix)
+
+fun1alt_matrix <- fun1alt()
+dim(fun1alt_matrix)
+```
+
+```{r}
+# Show the values inside the two matrices follow similar distributions 
+
+hist(as.vector(fun_matrix),
+main = "Histogram of Values in the Fun1 Matrix",
+xlab = "Value",
+ylab = "Frequency")
+
+hist(as.vector(fun1alt_matrix),
+main = "Histogram of Values in the Fun1Alt Matrix",
+xlab = "Value",
+ylab = "Frequency")
+```
+The values inside the two matrices follow similar distributions. Both distributions are positively skewed. Both distributions have a peak around 3-4. 
+
+```{r}
+# Check the speed of the two functions 
+microbenchmark::microbenchmark(
+  fun1(),
+  fun1alt()
+)
+```
+The fun1alt function is approximately 9x faster than the fun1 function. The mean speed of the fun1 function is 211 microseconds. The mean speed of the fun1alt function is 39 microseconds. 
+
+## Function 2 (max value of each column of a matrix)
+```{r}
+# Data Generating Process (10 x 10,000 matrix)
+set.seed(1234)
+x <- matrix(rnorm(1e4), nrow=10)
+
+# Find each column's max value
+fun2 <- function(x) {
+  apply(x, 2, max)
+}
+
+fun2alt <- function(x) {
+  x[cbind(max.col(t(x)), 1:ncol(x))]
+}
+```
+
+```{r}
+# Show that both functions return the same output for a given input matrix x
+
+fun2_matrix <- fun2(x)
+print(fun2_matrix)
+```
+
+```{r}
+fun2alt_matrix <- fun2alt(x)
+print(fun2alt_matrix)
+```
+
+```{r}
+# Check the speed of the two functions
+microbenchmark::microbenchmark(
+  fun2(x),
+  fun2alt(x)
+)
+```
+
+The fun2alt function is 6.6x faster than the fun2 function.
+
+# Problem 3: Parallelization
+# 1. Parallelize the lapply loop
+```{r}
+my_boot <- function(dat, stat, R, ncpus = 1L) {
+  
+  # Getting the random indices
+  n <- nrow(dat)
+  idx <- matrix(sample.int(n, n*R, TRUE), nrow=n, ncol=R)
+  
+  #Parallelized function
+  library(parallel)
+  cl <- makeCluster(ncpus)
+  clusterExport(cl, varlist = c("dat", "idx", "stat"), envir = environment())
+  ans <- parLapply(cl, seq_len(R), function(i) {
+    stat(dat[idx[, i], , drop = FALSE])
+  })
+  stopCluster(cl)
+  
+  # Converting the list into a matrix
+  ans <- do.call(rbind, ans)
+
+  return(ans)
+}
+```
+
+# 2. Once you have a version of the my_boot() function that runs on multiple cores, check that it provides accurate results by comparing it to a parametric model:
+```{r}
+# Bootstrap of an OLS
+my_stat <- function(d) coef(lm(y ~ x, data=d))
+
+# DATA SIM
+set.seed(1)
+n <- 500; R <- 1e4
+
+x <- cbind(rnorm(n)); y <- x*5 + rnorm(n)
+
+# Checking if we get something similar as lm
+ans0 <- confint(lm(y~x))
+ans1 <- my_boot(dat = data.frame(x, y), my_stat, R = R, ncpus = 2L)
+```
+# Check whether your version actually goes faster when it’s run on multiple cores
+```{r}
+system.time(my_boot(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 1L))
+system.time(my_boot(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 2L))
+```
+It was faster to run it with multiple cores. 
