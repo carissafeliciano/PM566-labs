@@ -1,0 +1,167 @@
+---
+title: "Assignment 03 - Text Mining"
+author: "Carissa Feliciano"
+format: html
+embed-resources: true
+---
+
+# Text Mining
+```{r}
+if(!file.exists("~/Downloads/pubmed.csv")) {
+  download.file(
+    "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/03_pubmed/pubmed.csv",
+    destfile = file.path("~", "Downloads", "pubmed.csv"),
+    method   = "libcurl",
+    timeout  = 60
+  )
+}
+
+pubmed <- data.table::fread(file.path("~", "Downloads", "pubmed.csv"))
+pubmed <- as.data.frame(pubmed)
+```
+## 1. Tokenize the abstracts and count the number of each token. Do you see anything interesting? Does removing stop words change what tokens appear as the most frequent? What are the 5 most common tokens for each search term after removing stopwords?
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(tidytext)
+library(reactable)
+
+
+#Tokenize the abstract and count the number of each token
+pubmed_tokens <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  count(token, sort = TRUE)
+
+reactable(pubmed_tokens, pagination = TRUE)
+```
+<br>
+It appears that covid is the most common non-stop word. 
+
+```{r}
+# Remove stop words
+pubmed_tokens2 <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  anti_join(stop_words, by = c("token" = "word")) |>
+  count(token, sort = TRUE)
+
+reactable(pubmed_tokens2, pagination = TRUE)
+```
+<br>
+Removing the stop words changed what words appear as the most frequent. The 5 most common tokens after removing the stop words are covid, 19, patients, cancer, and prostate. 
+
+```{r}
+# Determine top 5 most common tokens for each search term after removing stopwords
+pubmed_tokens3 <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  anti_join(stop_words, by = c("token" = "word")) |>
+  count(term, token, sort = TRUE) |>
+  group_by(term) |>
+  top_n(5, n) |>
+  arrange(term)
+
+reactable(pubmed_tokens3, pagination = TRUE)
+```
+
+<br>The top 5 tokens for each search term: 
+<br> - Covid: covid, 19, patients, disease, pandemic
+<br> - Cystic fibrosis: fibrosis, cystic, cf, patients, disease
+<br> - Meningitis: patients, meningitis, meningeal, csf, clinical
+<br> - Preeclampsia: pre, eclampsia, preeclampsia, women, pregnancy
+<br> - Prostate cancer: cancer, prostate, patients, treatment, disease
+
+## 2. Tokenize the abstracts into bigrams. Find the 10 most common bigrams and visualize them with ggplot2.
+```{r}
+pubmed |>
+  unnest_ngrams(ngram, abstract, n = 2) |>
+  count(ngram, sort = TRUE) |>
+  top_n(10, n) |>
+  ggplot(aes(n, ngram)) +
+  geom_col()
+```
+
+## 3. Calculate the TF-IDF value for each word-search term combination (here you want the search term to be the “document”). What are the 5 tokens from each search term with the highest TF-IDF value? How are the results different from the answers you got in question 1?
+
+```{r}
+pubmed_tf_idf <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  count(term, token) |>
+  bind_tf_idf(token, term, n) |>
+  group_by(term) |>
+  top_n(5, tf_idf) |>
+  arrange(term, desc(tf_idf))
+
+reactable(pubmed_tf_idf, pagination = TRUE)
+```
+
+The results are different from the answers I got in question 1. Broad, general tokens, such as patients, disease, clinical, women, and treatment are no longer included in the answer for question 3. Overall, the tokens included in these new results are more closely related to the search term. 
+
+For the "covid" term, covid and pandemic are the same; coronavirus, sars, and cov are now included. For the "cystic fibrosis" term, cf, fibrosis, and cystic are the same; cftr and sweat are now included. For the "meningitis" term, meningitis, meningeal, and csf are the same; pachymeningitis and meninges are now included. For the "preeclampsia" term, preeclampsia, eclampsia, and pregnancy are the same; maternal and gestational are now included. For the "prostate" term, prostate is the same; androgen, psa, prostatectomy, and castration are now included. 
+
+# Sentiment Analysis
+## 1. Perform a sentiment analysis using the NRC lexicon. What is the most common sentiment for each search term? What if you remove "positive" and "negative" from the list?
+```{r}
+library(textdata)
+
+pubmed_sentiment <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  inner_join(get_sentiments('nrc'), by = c("token" = "word")) |>
+  count(term, sentiment) |>
+  group_by(term) |>
+  top_n(1, n)
+
+reactable(pubmed_sentiment, pagination = TRUE)
+```
+
+<br>
+The most common sentiment for each term is displayed above. The most common sentiment is positive for covid, cystic fibrosis, and preeclampsia. The most common sentiment is negative for meningitis and preeclampsia. 
+
+```{r}
+# Remove "positive" and "negative" from the list
+nrc <- get_sentiments("nrc")
+nrc <- nrc[!nrc$sentiment %in% c("positive","negative"), ]
+
+pubmed_sentiment2 <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  inner_join(nrc, by = c("token" = "word")) |>
+  count(term, sentiment) |>
+  group_by(term) |>
+  top_n(1, n)
+
+reactable(pubmed_sentiment2, pagination = TRUE)
+```
+
+<br>
+If you remove "positive" and "negative" from the list, the top sentiment is fear for covid, disgust for cystic fibrosis, fear for meningitis, anticipation for preeclampsia, and fear for prostate cancer. 
+
+## 2. Perform a sentiment analysis using the AFINN lexicon to get an average positivity score for each abstract (hint: you may want to create a variable that indexes, or counts, the abstracts). Create a visualization that shows these scores grouped by search term. Are any search terms noticeably different from the others?
+```{r}
+# Sentiment analysis to get an average positivity score for each abstract
+pubmed <- pubmed %>%
+  mutate(abstract_id = row_number())
+
+pubmed_scores <- pubmed |>
+  unnest_tokens(token, abstract) |>
+  inner_join(get_sentiments('afinn'), by = c("token" = "word")) |>
+  group_by(abstract_id, term) |>
+  summarize(avg_sentiment = mean(value, na.rm = TRUE))
+
+reactable(pubmed_scores, pagination = TRUE)
+```
+```{r}
+# Create a visualization that shows these scores grouped by term
+pubmed_scores <- pubmed_scores |>
+  mutate(term = str_to_title(term))
+
+ggplot(pubmed_scores, aes(x = term, y = avg_sentiment, fill = term)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2, color = "black", fill = "white", 
+      alpha = 0.5, 
+      outlier.shape = NA) +
+  labs(title = "Average Sentiment Scores of Abstracts by Search Term",
+       x = "Search Term",
+       y = "Average Sentiment Score") +
+  scale_fill_discrete(name = "Search Term") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+I created a violin plot overlayed with a boxplot (minus outliers) to show the abstract sentiment scores grouped by term. The median score for the cystic fibrosis term is positive (approximately 0.5), while the median scores for the other terms are negative. The distribution of the scores for the prostate cancer term looks different from the other terms. For the prostate cancer term, the range is smaller, and the scores are more densely clustered around the median. 
